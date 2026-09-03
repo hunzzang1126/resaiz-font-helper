@@ -7,7 +7,7 @@
 //!
 //! Endpoints (GET, JSON unless noted):
 //!   /v1/health        {"name","version","fonts","platform","port"}
-//!   /v1/fonts         [{"id","family","style","weight","italic","postscript","source","format"}]
+//!   /v1/fonts         [{"id","family","style","weight","italic","postscript","source","format","size","axes"}]
 //!   /v1/font/{id}     the font bytes (font/ttf or font/otf; a collection face is repacked on its own)
 //!
 //! Only whitelisted browser origins may read it (see ALLOWED_ORIGINS). File
@@ -42,6 +42,16 @@ struct FontEntry {
     face_index: u32,
     /// Bytes the browser receives: the file, or the single face repacked out of a collection.
     size: u64,
+    /// Variation axes of a variable font (fvar): tag, min, default, max. Empty for static faces.
+    axes: Vec<Axis>,
+}
+
+#[derive(Clone, Debug)]
+struct Axis {
+    tag: String,
+    min: f32,
+    def: f32,
+    max: f32,
 }
 
 #[derive(Default)]
@@ -385,6 +395,16 @@ fn parse_face(
         italic = true;
     }
 
+    let axes = tables
+        .get(b"fvar")
+        .map(|&(o, l)| parse_fvar(&bytes[o..o + l]))
+        .unwrap_or_default();
+    // A variable font's OS/2 weight is only its default instance; the browser
+    // reaches every weight of the wght axis, so the entry reports the default.
+    if let Some(w) = axes.iter().find(|a| a.tag == "wght") {
+        weight = w.def.round().clamp(1.0, 1000.0) as u16;
+    }
+
     let id = fnv_hex(&format!("{}#{}", path.display(), face_index));
     Some(FontEntry {
         id,
@@ -398,7 +418,25 @@ fn parse_face(
         path: path.to_path_buf(),
         face_index,
         size,
+        axes,
     })
+}
+
+/// fvar table: the variation axes of a variable font (16.16 fixed values).
+fn parse_fvar(t: &[u8]) -> Vec<Axis> {
+    let mut out = Vec::new();
+    let (Some(axes_off), Some(count), Some(size)) = (be16(t, 4), be16(t, 8), be16(t, 10)) else {
+        return out;
+    };
+    let fixed = |o: usize| be32(t, o).map(|v| (v as i32) as f32 / 65536.0);
+    for i in 0..count.min(16) as usize {
+        let r = axes_off as usize + i * size.max(20) as usize;
+        let Some(tag) = t.get(r..r + 4) else { break };
+        let (Some(min), Some(def), Some(max)) = (fixed(r + 4), fixed(r + 8), fixed(r + 12)) else { break };
+        let tag: String = tag.iter().map(|&b| if b.is_ascii_graphic() { b as char } else { '?' }).collect();
+        out.push(Axis { tag, min, def, max });
+    }
+    out
 }
 
 /// Repack one face of a TrueType collection as a standalone sfnt. Browsers only
@@ -674,7 +712,7 @@ fn fonts_json(fonts: &[FontEntry]) -> String {
             s.push(',');
         }
         s.push_str(&format!(
-            "{{\"id\":{},\"family\":{},\"style\":{},\"weight\":{},\"italic\":{},\"postscript\":{},\"source\":{},\"format\":{},\"size\":{}}}",
+            "{{\"id\":{},\"family\":{},\"style\":{},\"weight\":{},\"italic\":{},\"postscript\":{},\"source\":{},\"format\":{},\"size\":{},\"axes\":{}}}",
             json_str(&f.id),
             json_str(&f.family),
             json_str(&f.style),
@@ -683,7 +721,26 @@ fn fonts_json(fonts: &[FontEntry]) -> String {
             json_str(&f.postscript),
             json_str(f.source),
             json_str(f.format),
-            f.size
+            f.size,
+            axes_json(&f.axes)
+        ));
+    }
+    s.push(']');
+    s
+}
+
+fn axes_json(axes: &[Axis]) -> String {
+    let mut s = String::from("[");
+    for (i, a) in axes.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str(&format!(
+            "{{\"tag\":{},\"min\":{},\"def\":{},\"max\":{}}}",
+            json_str(&a.tag),
+            a.min,
+            a.def,
+            a.max
         ));
     }
     s.push(']');
