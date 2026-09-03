@@ -13,7 +13,7 @@
 //! Only whitelisted browser origins may read it (see ALLOWED_ORIGINS). File
 //! paths never leave the process; fonts are addressed by id.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -260,6 +260,11 @@ fn scan(roots: &[(PathBuf, &'static str)]) -> Vec<FontEntry> {
             }
         }
     }
+    // The same face often exists twice (Adobe ships .otf and .ttf, a user copy
+    // beside a system collection). One entry per family, style, weight and
+    // italic; the first found wins, so the scan order of the roots decides.
+    let mut seen: HashSet<String> = HashSet::new();
+    fonts.retain(|f| seen.insert(format!("{}|{}|{}|{}", f.family.to_lowercase(), f.style.to_lowercase(), f.weight, f.italic)));
     fonts.sort_by(|a, b| {
         a.family
             .to_lowercase()
