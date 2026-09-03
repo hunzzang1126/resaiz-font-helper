@@ -1,0 +1,20 @@
+[package]
+name = "resaiz-font-helper"
+version = "0.1.0"
+edition = "2021"
+description = "Local font bridge for resaiz: lists installed fonts (including Adobe Fonts) and serves their files to the resaiz editor on 127.0.0.1"
+license = "MIT"
+repository = "https://github.com/hunzzang1126/resaiz-font-helper"
+
+[[bin]]
+name = "resaiz-font-helper"
+path = "src/main.rs"
+
+[dependencies]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

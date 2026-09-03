@@ -1,0 +1,66 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset: resaiz-font-helper-macos-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            asset: resaiz-font-helper-macos-x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: resaiz-font-helper-windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist/${{ matrix.asset }}
+          cp target/${{ matrix.target }}/release/resaiz-font-helper dist/${{ matrix.asset }}/
+          cp scripts/install-mac.sh scripts/uninstall-mac.sh dist/${{ matrix.asset }}/
+          cd dist && zip -r ${{ matrix.asset }}.zip ${{ matrix.asset }}
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/${{ matrix.asset }} | Out-Null
+          Copy-Item target/${{ matrix.target }}/release/resaiz-font-helper.exe dist/${{ matrix.asset }}/
+          Copy-Item scripts/install-win.ps1, scripts/uninstall-win.ps1 dist/${{ matrix.asset }}/
+          Compress-Archive -Path dist/${{ matrix.asset }} -DestinationPath dist/${{ matrix.asset }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true
