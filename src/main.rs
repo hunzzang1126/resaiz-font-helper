@@ -66,6 +66,12 @@ struct Catalog {
 fn main() {
     let args: Vec<String> = env::args().collect();
     let once = args.iter().any(|a| a == "--once");
+    let extra: Vec<String> = args
+        .windows(2)
+        .filter(|w| w[0] == "--allow-origin")
+        .map(|w| w[1].trim_end_matches('/').to_string())
+        .collect();
+    let _ = EXTRA_ORIGINS.set(extra);
     let port_arg = args
         .iter()
         .position(|a| a == "--port")
@@ -547,7 +553,14 @@ fn fnv_hex(s: &str) -> String {
 /* HTTP                                                                      */
 /* ------------------------------------------------------------------------ */
 
+/// Extra browser origins from `--allow-origin <origin>` (repeatable), for a
+/// developer running the editor on another local port.
+static EXTRA_ORIGINS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
 fn origin_allowed(origin: &str) -> bool {
+    if EXTRA_ORIGINS.get().map(|v| v.iter().any(|o| o == origin)).unwrap_or(false) {
+        return true;
+    }
     origin == "https://resaiz.vercel.app"
         || origin == "https://www.resaiz.com"
         || origin == "https://resaiz.com"
