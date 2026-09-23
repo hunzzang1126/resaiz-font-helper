@@ -561,11 +561,13 @@ fn origin_allowed(origin: &str) -> bool {
     if EXTRA_ORIGINS.get().map(|v| v.iter().any(|o| o == origin)).unwrap_or(false) {
         return true;
     }
+    // Every resaiz host: the app, brand workspaces (gg.resaiz.com), preview
+    // deployments, and a developer's local server on any port.
     origin == "https://resaiz.vercel.app"
-        || origin == "https://www.resaiz.com"
         || origin == "https://resaiz.com"
-        || origin == "http://localhost:5173"
-        || origin == "http://127.0.0.1:5173"
+        || (origin.starts_with("https://") && origin.ends_with(".resaiz.com") && !origin[8..].contains('/'))
+        || origin.starts_with("http://localhost:")
+        || origin.starts_with("http://127.0.0.1:")
         || (origin.starts_with("https://resaiz-") && origin.ends_with(".vercel.app"))
 }
 
